@@ -26,25 +26,21 @@ enum Syrup: Int {
     case vanilla = 20
 }
 enum SyrupError: Error {
-    case emptyTank(reason: String) // out of syrop
+    case emptyTank // out of syrop
 }
 func pourSyrup(currentVolume: Int, type: Syrup?) throws -> Int {
     guard let type else {
-        throw SyrupError.emptyTank(reason: "Tank is empty!")
+        throw SyrupError.emptyTank
     }
-    guard type.rawValue > 0 else {
-        throw SyrupError.emptyTank(reason: "Syrup is out!")
-    }
-    let newVolume = currentVolume + type.rawValue
     
-return newVolume
+return currentVolume + type.rawValue
 }
 // var. 1
 do {
     let result = try pourSyrup(currentVolume: 100, type: .cherry)
     print("✅ Success! Volume: \(result) ml.") // ✅ Success! Volume: 130 ml.
-} catch SyrupError.emptyTank(let reason) {
-    print("❌ Problems with syrup: \(reason)")
+} catch SyrupError.emptyTank {
+    print("❌ Problems with syrup.")
 } catch {
     print("❌ Unknown error: \(error)")
 }
@@ -52,8 +48,8 @@ do {
 do {
     let result = try pourSyrup(currentVolume: 100, type: nil)
     print("✅ Success! Volume: \(result) ml.")
-} catch SyrupError.emptyTank(let reason) {
-    print("❌ Problems with syrup: \(reason)") // ❌ Problems with syrup: Tank is empty
+} catch SyrupError.emptyTank {
+    print("❌ Problems with syrup.") // ❌ Problems with syrup: Tank is empty
 } catch {
     print("❌ Unknown error: \(error)")
 }
