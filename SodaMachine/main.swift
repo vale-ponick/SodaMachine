@@ -200,9 +200,15 @@ enum TeaCupError: Error {
     case cupOverflow(notFittedVolume: Int)
 }
 
-// 2. STRUCTS:
+// 2. STRUCTS WITH FAILABLE INIT & ENCAPSULATION:
 struct TeaCup {
-    private(set) var volume: Int = 0 // инкапсуляция => «Но читать её (get) всё ещё можно без ограничений».
+    private(set) var volume: Int // Защита от прямого изменения извне
+    init? (volume: Int = 0) { // Кастомный инит, который не пропустит плохой объем при создании
+        guard volume >= 0 && volume <= 200 else {
+            return nil
+        }
+        self.volume = volume
+    }
 }
 
 // 3. EXTENSIONS:
@@ -236,16 +242,21 @@ extension TeaCup {
         volume += type.rawValue
     }
 }
-let tray: [TeaCup] = [
+// TESTS:
+let rawTray: [TeaCup?] = [ // 1. Создай опциональный массив
     TeaCup(volume: 0),
     TeaCup(volume: 90),
     TeaCup(volume: 200)
 ]
+let tray: [TeaCup] = rawTray.compactMap { $0 } // Чистим его от nil
+
 let order: [Ingredient] = [
-    Honey.fresh, // для чашки № 1 (0 мл)
+    Honey.fresh,          // для чашки № 1 (0 мл)
     Confiture.strawberry, // для чашки № 2 (90 мл)
-    Honey.flower // для чашки № 3 (200 мл)
+    Honey.flower          // для чашки № 3 (200 мл)
 ]
+print("--- ТЕСТ МАССИВА ЧАШЕК ---")
+// Исправлено: теперь цикл идет строго по чистому массиву `tray`
 for (index, teaCup) in tray.enumerated() {
     var mutableCup = teaCup // copy for mutating volume
     let ingredient = order[index] // достань ингредиент, закрепленный за чашкой
@@ -257,7 +268,7 @@ for (index, teaCup) in tray.enumerated() {
     } catch TeaCupError.cupOverflow(let extra) {
         print("Tray \(index): ❌ Overflow! \(extra) ml for \(ingredient.name) not fitted. Status of cup: \(mutableCup.status).")
     } catch {
-        print("Tray \(index): ❌ Anknown error: \(error)")
+        print("Tray \(index): ❌ Unknown error: \(error)")
     }
 }
 // 1. Создаем массив замыканий (функциональный конвейер)
@@ -267,37 +278,40 @@ let teaPipeline: [(TeaCup) throws -> TeaCup] = [
     { var cup = $0; try cup.addIngredient(type: Confiture.strawberry); return cup }, // Шаг 2: +42 мл клубники
     { var cup = $0; try cup.addIngredient(type: Honey.buckwheat); return cup }    // Шаг 3: +33 мл гречишного мёда
 ]
-
+// 2. ФУНКЦИОНАЛЬНЫЙ КОНВЕЙЕР
+let teaCupPipeline: [(TeaCup) throws -> TeaCup] = [
+    { var cup = $0; try cup.addIngredient(type: Honey.fresh); return cup },
+    { var cup = $0; try cup.addIngredient(type: Confiture.strawberry); return cup },
+    { var cup = $0; try cup.addIngredient(type: Honey.buckwheat); return cup }
+]
 print("\n--- ЗАПУСК ФУНКЦИОНАЛЬНОГО КОНВЕЙЕРА ---")
 
 // 2. Начальное состояние: чистая чашка (volume: 0) и флаг остановки false
-let initialTuple = (cup: TeaCup(), isFinished: false)
+guard let initialCup = TeaCup(volume: 0) else {
+    fatalError("Cannot create initial cup")
+}
+let initialTuple = (cup: initialCup, isFinished: false)
 
 // 3. Запускаем свертку конвейера
 let finalPipelineResult = teaPipeline.reduce(initialTuple) { state, nextStep in
-    // Если на прошлых шагах конвейер уже был остановлен, просто передаем состояние дальше (аналог break)
     guard !state.isFinished else { return state }
     
     do {
-        // Пытаемся применить следующий шаг конвейера к чашке из предыдущего состояния
-        let updatedCup = try nextStep(state.cup)
+        let updatedCup = try nextStep(state.cup)  // ← вызываем шаг!
         
-        // Дополнительная проверка на лимит, если нужно зафиксировать статус
         if updatedCup.isFull {
-            print("🚨 Чашка наполнилась до максимума! Прекращаем добавление топпингов.")
+            print("🚨 Чашка наполнилась до максимума!")
             return (cup: updatedCup, isFinished: true)
         }
         
-        print("➡️ Шаг конвейера выполнен успешно. Текущий объем: \(updatedCup.volume) мл.")
+        print("➡️ Шаг выполнен. Объём: \(updatedCup.volume) мл.")
         return (cup: updatedCup, isFinished: false)
         
     } catch TeaCupError.cupOverflow(let extra) {
-        // Умный откат: если шаг вызвал переполнение, мы возвращаем ПРЕДЫДУЩУЮ чашку (state.cup)
-        // и выставляем флаг завершения конвейера (isFinished: true)
-        print("🚨 Конвейер заблокировал переполнение! Не поместилось \(extra) мл. Последний ингредиент отменен.")
+        print("🚨 Переполнение! \(extra) мл не поместилось.")
         return (cup: state.cup, isFinished: true)
     } catch {
-        print("🚨 Непредвиденная ошибка на конвейере: \(error)")
+        print("🚨 Ошибка: \(error)")
         return (cup: state.cup, isFinished: true)
     }
 }
@@ -306,13 +320,15 @@ let finalPipelineResult = teaPipeline.reduce(initialTuple) { state, nextStep in
 print("✅ Итоговый объем чашки на конвейере: \(finalPipelineResult.cup.volume) мл.")
 print("✅ Итоговый статус чашки: \(finalPipelineResult.cup.status)")
 /*
+ --- ТЕСТ МАССИВА ЧАШЕК ---
  Tray 0: ✅ New volume: 42 ml. Added: 🐝 fresh honey
  Tray 1: ✅ New volume: 132 ml. Added: 🍓 strawberry
  Tray 2: ❌ Overflow! 21 ml for 🌸 flower honey not fitted. Status of cup: Full cup.
+
  --- ЗАПУСК ФУНКЦИОНАЛЬНОГО КОНВЕЙЕРА ---
- ➡️ Шаг конвейера выполнен успешно. Текущий объем: 42 мл.
- ➡️ Шаг конвейера выполнен успешно. Текущий объем: 84 мл.
- ➡️ Шаг конвейера выполнен успешно. Текущий объем: 117 мл.
+ ➡️ Шаг выполнен. Объём: 42 мл.
+ ➡️ Шаг выполнен. Объём: 84 мл.
+ ➡️ Шаг выполнен. Объём: 117 мл.
  ✅ Итоговый объем чашки на конвейере: 117 мл.
  ✅ Итоговый статус чашки: In Progress
  */
