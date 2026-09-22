@@ -158,3 +158,161 @@ print("Final cup status: \(fullCap.status)")
      Initial cup status: Full
      ❌ Overflow! 35 ml. not fitted!
      Final cup status: Full */
+
+// MARK: - Test 3. '☕️ 🍯 🐝 Cap of tea with honey': struct + computed property + error handling & raw values + extension + tray
+protocol Ingredient { // Это договор: «Любой, кто хочет быть Ингредиентом, обязан иметь текстовое имя name и числовой объём rawValue».
+    var name: String { get }
+    var rawValue: Int { get }
+}
+
+// 1. ENUMS:
+enum Honey: Int, Ingredient { // enum with assosiated values + computed property
+    case fresh = 42
+    case linden = 38
+    case buckwheat = 33
+    case flower = 21
+    case heather = 27
+    
+    var name: String {
+        switch self {
+        case .fresh: return "🐝 fresh honey"
+        case .linden: return "🌳 linden honey" // липовый
+        case .buckwheat: return "🌼 buckwheat honey" // гречишный
+        case .flower: return "🌸 flower honey"
+        case .heather: return "🪻 heather honey" // вересковый
+        }
+    }
+}
+enum Confiture: Int, Ingredient {
+    case strawberry = 42
+    case raspberry = 36
+        
+    var name: String {
+        switch self {
+        case .strawberry: return "🍓 strawberry"
+        case .raspberry: return "🫐 raspberry"
+        }
+    }
+}
+
+enum TeaCupError: Error {
+    case emptyTank
+    case cupOverflow(notFittedVolume: Int)
+}
+
+// 2. STRUCTS:
+struct TeaCup {
+    private(set) var volume: Int = 0 // инкапсуляция => «Но читать её (get) всё ещё можно без ограничений».
+}
+
+// 3. EXTENSIONS:
+extension TeaCup {
+    var isFull: Bool {
+        volume >= 200
+    }
+    var remainingSpace: Int {
+        200 - volume
+    }
+    var status: String {
+        switch volume {
+        case 0:
+            return "Empty"
+        case 1..<200:
+            return "In Progress"
+        case 200...:
+            return "Full cup"
+        default:
+            return "Unknown"
+        }
+    }
+    mutating func addIngredient(type: Ingredient?) throws {
+        guard let type else {
+            throw TeaCupError.emptyTank
+        }
+        guard remainingSpace >= type.rawValue else {
+            let extraVolume = type.rawValue - remainingSpace
+            throw TeaCupError.cupOverflow(notFittedVolume: extraVolume)
+        }
+        volume += type.rawValue
+    }
+}
+let tray: [TeaCup] = [
+    TeaCup(volume: 0),
+    TeaCup(volume: 90),
+    TeaCup(volume: 200)
+]
+let order: [Ingredient] = [
+    Honey.fresh, // для чашки № 1 (0 мл)
+    Confiture.strawberry, // для чашки № 2 (90 мл)
+    Honey.flower // для чашки № 3 (200 мл)
+]
+for (index, teaCup) in tray.enumerated() {
+    var mutableCup = teaCup // copy for mutating volume
+    let ingredient = order[index] // достань ингредиент, закрепленный за чашкой
+    do {
+        try mutableCup.addIngredient(type: ingredient) // наливаем УНИВЕРСальный ингредиент
+        print("Tray \(index): ✅ New volume: \(mutableCup.volume) ml. Added: \(ingredient.name)")
+    } catch TeaCupError.emptyTank {
+        print("Tray \(index): ❌ Ingredient not found.")
+    } catch TeaCupError.cupOverflow(let extra) {
+        print("Tray \(index): ❌ Overflow! \(extra) ml for \(ingredient.name) not fitted. Status of cup: \(mutableCup.status).")
+    } catch {
+        print("Tray \(index): ❌ Anknown error: \(error)")
+    }
+}
+// 1. Создаем массив замыканий (функциональный конвейер)
+// Тип: массив функций, которые принимают TeaCup и возвращают новую TeaCup (или кидают ошибку)
+let teaPipeline: [(TeaCup) throws -> TeaCup] = [
+    { var cup = $0; try cup.addIngredient(type: Honey.fresh); return cup },       // Шаг 1: +42 мл мёда
+    { var cup = $0; try cup.addIngredient(type: Confiture.strawberry); return cup }, // Шаг 2: +42 мл клубники
+    { var cup = $0; try cup.addIngredient(type: Honey.buckwheat); return cup }    // Шаг 3: +33 мл гречишного мёда
+]
+
+print("\n--- ЗАПУСК ФУНКЦИОНАЛЬНОГО КОНВЕЙЕРА ---")
+
+// 2. Начальное состояние: чистая чашка (volume: 0) и флаг остановки false
+let initialTuple = (cup: TeaCup(), isFinished: false)
+
+// 3. Запускаем свертку конвейера
+let finalPipelineResult = teaPipeline.reduce(initialTuple) { state, nextStep in
+    // Если на прошлых шагах конвейер уже был остановлен, просто передаем состояние дальше (аналог break)
+    guard !state.isFinished else { return state }
+    
+    do {
+        // Пытаемся применить следующий шаг конвейера к чашке из предыдущего состояния
+        let updatedCup = try nextStep(state.cup)
+        
+        // Дополнительная проверка на лимит, если нужно зафиксировать статус
+        if updatedCup.isFull {
+            print("🚨 Чашка наполнилась до максимума! Прекращаем добавление топпингов.")
+            return (cup: updatedCup, isFinished: true)
+        }
+        
+        print("➡️ Шаг конвейера выполнен успешно. Текущий объем: \(updatedCup.volume) мл.")
+        return (cup: updatedCup, isFinished: false)
+        
+    } catch TeaCupError.cupOverflow(let extra) {
+        // Умный откат: если шаг вызвал переполнение, мы возвращаем ПРЕДЫДУЩУЮ чашку (state.cup)
+        // и выставляем флаг завершения конвейера (isFinished: true)
+        print("🚨 Конвейер заблокировал переполнение! Не поместилось \(extra) мл. Последний ингредиент отменен.")
+        return (cup: state.cup, isFinished: true)
+    } catch {
+        print("🚨 Непредвиденная ошибка на конвейере: \(error)")
+        return (cup: state.cup, isFinished: true)
+    }
+}
+
+// 4. Проверяем итоговый результат
+print("✅ Итоговый объем чашки на конвейере: \(finalPipelineResult.cup.volume) мл.")
+print("✅ Итоговый статус чашки: \(finalPipelineResult.cup.status)")
+/*
+ Tray 0: ✅ New volume: 42 ml. Added: 🐝 fresh honey
+ Tray 1: ✅ New volume: 132 ml. Added: 🍓 strawberry
+ Tray 2: ❌ Overflow! 21 ml for 🌸 flower honey not fitted. Status of cup: Full cup.
+ --- ЗАПУСК ФУНКЦИОНАЛЬНОГО КОНВЕЙЕРА ---
+ ➡️ Шаг конвейера выполнен успешно. Текущий объем: 42 мл.
+ ➡️ Шаг конвейера выполнен успешно. Текущий объем: 84 мл.
+ ➡️ Шаг конвейера выполнен успешно. Текущий объем: 117 мл.
+ ✅ Итоговый объем чашки на конвейере: 117 мл.
+ ✅ Итоговый статус чашки: In Progress
+ */
