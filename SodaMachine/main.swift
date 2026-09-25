@@ -332,3 +332,249 @@ print("✅ Итоговый статус чашки: \(finalPipelineResult.cup.s
  ✅ Итоговый объем чашки на конвейере: 117 мл.
  ✅ Итоговый статус чашки: In Progress
  */
+
+// MARK: - Test. 'Урок зельеварения у Слизнорта'. 5 студентов варят «Напиток живой смерти». Цель — прозрачное зелье (победа).
+
+//full code: (SWIFT 6.4, STATE MACHINE + .finish)
+
+// MARK: - Базовые перечисления
+enum Approach {
+    case officialBook, halfBloodPrince, hastilyChop
+}
+
+enum Step {
+    case boilWater, cutValerian, pressBeans, stir, finish   // 🆕 .finish
+}
+
+enum PotionColor: String {
+    case clear, boiling, currant, lilac, pink, transparent
+    case ruinedMurky = "ruined murky"
+    case licorice = "wet licorice"
+    case darkBlue = "deep blue"
+}
+
+enum StepError: Error {
+    case cutBeans(color: PotionColor)
+    case stirClockwise(color: PotionColor)
+    case ruinedByChop(color: PotionColor)
+}
+
+struct PotionResult {
+    let color: PotionColor
+    let isWinner: Bool
+    
+    var slughornAction: String {
+        isWinner
+            ? "💥 «Professor Slughorn: 'Good Lord, it’s clear you’ve inherited your mother’s talent, she was a dab hand at Potions, Lily was! Here you are, then, here you are – one bottle of Felix Felicis, as promised, and use it well!'"
+            : "🧙 Professor Slughorn peered into the cauldron and moved on without a word."
+    }
+}
+
+// MARK: - Состояния конечного автомата
+enum CauldronState {
+    case empty
+    case waterBoiling
+    case valerianAdded(color: PotionColor)
+    case beansPressed(color: PotionColor)
+    case stirred(color: PotionColor)              // 🆕 промежуточное
+    case successfullyBrewed(PotionResult)
+    case failed(StepError)
+}
+
+// MARK: - Управляющий объект (State Machine)
+final class Cauldron {
+    private(set) var state: CauldronState = .empty
+    let studentName: String
+    
+    init(studentName: String) {
+        self.studentName = studentName
+    }
+    
+    /// Принимает ОДНО действие и переводит систему в СЛЕДУЮЩЕЕ состояние
+    func apply(step: Step, approach: Approach) {
+        switch state {
+        case .empty:
+            guard step == .boilWater else { return }
+            state = .waterBoiling
+            print("  [Cauldron \(studentName)]: 🍲 The water is boiling.")
+
+            
+        case .waterBoiling:
+            guard step == .cutValerian else { return }
+            if approach == .hastilyChop {
+                state = .failed(.ruinedByChop(color: .ruinedMurky))
+            } else {
+                state = .valerianAdded(color: .currant)
+                print("  [Cauldron \(studentName)]: 🍲 Valerian roots added. The potion turned dark currant.")
+            }
+            
+        case .valerianAdded:
+            guard step == .pressBeans else { return }
+            
+            if studentName == "Ron" {
+                state = .failed(.cutBeans(color: .licorice))
+                return
+            }
+            
+            if approach == .halfBloodPrince {
+                state = .beansPressed(color: .lilac)
+                print("  [Cauldron \(studentName)]: 🍲 Sopophorous bean juice added. The potion turned lilac.")
+                if studentName == "Harry" {
+                    print("  [Harry]: \"Hermione, you should crush the bean with the silver dagger, not cut it!\"")
+                }
+            } else {
+                state = .beansPressed(color: .lilac)
+                print("  [Cauldron \(studentName)]: 🍲 Sopophorous bean juice added. The potion turned lilac.")
+                if studentName == "Hermione" {
+                    print("  [Hermione]: \"The instructions in the book say to slice it!\"")
+                }
+            }
+            
+        case .beansPressed:
+            guard step == .stir else { return }
+            if approach == .halfBloodPrince {
+                state = .stirred(color: .pink)            // ← промежуточный
+                print("  [Cauldron \(studentName)]: 🍲 The potion turned light pink.")
+
+            } else {
+                let finalColor: PotionColor = (studentName == "Hermione") ? .lilac : .darkBlue
+                state = .failed(.stirClockwise(color: finalColor))
+            }
+            
+        case .stirred:                                    // 🆕 финал
+            guard step == .finish else { return }
+            let result = PotionResult(color: .transparent, isWinner: true)
+            state = .successfullyBrewed(result)
+            print("  [Cauldron \(studentName)]: 🍲 The potion turned completely clear!")
+            
+        case .successfullyBrewed, .failed:
+            break   // после финала — игнор
+        }
+    }
+    
+    /// Финальная оценка состояния котла для Слизнорта
+    func checkResult() -> String {
+        switch state {
+        case .successfullyBrewed(let result):
+            return "✅ \(result.color.rawValue)\n   \(result.slughornAction)"
+            
+        case .failed(let error):
+            let details = switch error {
+            case .cutBeans(let color):     "❌ cutBeans — \(color.rawValue)"
+            case .stirClockwise(let color): "❌ stirClockwise — \(color.rawValue)"
+            case .ruinedByChop(let color):  "❌ ruinedByChop — \(color.rawValue)"
+            }
+            return "\(details)\n 🧙 Professor Slughorn peered into the cauldron and moved on without a word."
+            
+        case .stirred(let color):
+            return "❌ Professor Slughorn peered into the cauldron and moved on without a word: (\(color.rawValue)."
+            
+        default:
+            return "❌ Professor Slughorn peered into the cauldron and moved on without a word."
+        }
+    }
+}
+
+// MARK: - Симуляция урока
+struct Student {
+    let name: String
+    let timeline: [(step: Step, approach: Approach)]
+}
+
+let hogwartsClass = [
+    Student(name: "Harry", timeline: [
+        (.boilWater, .halfBloodPrince),
+        (.cutValerian, .halfBloodPrince),
+        (.pressBeans, .halfBloodPrince),
+        (.stir, .halfBloodPrince),
+        (.finish, .halfBloodPrince)          // 🆕
+    ]),
+    Student(name: "Hermione", timeline: [
+        (.boilWater, .officialBook),
+        (.cutValerian, .officialBook),
+        (.pressBeans, .officialBook),
+        (.stir, .officialBook),
+        (.finish, .officialBook)              // 🆕
+    ]),
+    Student(name: "Ron", timeline: [
+        (.boilWater, .officialBook),
+        (.cutValerian, .officialBook),
+        (.pressBeans, .officialBook),
+        (.stir, .officialBook),
+        (.finish, .officialBook)              // 🆕
+    ]),
+    Student(name: "Malfoy", timeline: [
+        (.boilWater, .officialBook),
+        (.cutValerian, .hastilyChop),
+        (.pressBeans, .officialBook),
+        (.stir, .officialBook),
+        (.finish, .officialBook)              // 🆕
+    ]),
+    Student(name: "Ernie", timeline: [
+        (.boilWater, .officialBook),
+        (.cutValerian, .officialBook),
+        (.pressBeans, .officialBook),
+        (.stir, .officialBook),
+        (.finish, .officialBook)              // 🆕
+    ])
+]
+
+for student in hogwartsClass {
+    print("--- Student \(student.name) starts brewing ---")
+    let cauldron = Cauldron(studentName: student.name)
+    
+    for action in student.timeline {
+        cauldron.apply(step: action.step, approach: action.approach)
+    }
+    
+    print("Professor Slughorn's inspection:")
+    print(cauldron.checkResult())
+    print(" ------ \n")
+}
+/*
+ --- Student Harry starts brewing ---
+   [Cauldron Harry]: 🍲 The water is boiling.
+   [Cauldron Harry]: 🍲 Valerian roots added. The potion turned dark currant.
+   [Cauldron Harry]: 🍲 Sopophorous bean juice added. The potion turned lilac.
+   [Harry]: "Hermione, you should crush the bean with the silver dagger, not cut it!"
+   [Cauldron Harry]: 🍲 The potion turned light pink.
+   [Cauldron Harry]: 🍲 The potion turned completely clear!
+ Professor Slughorn's inspection:
+ ✅ transparent
+    💥 «Professor Slughorn: 'Good Lord, it’s clear you’ve inherited your mother’s talent, she was a dab hand at Potions, Lily was! Here you are, then, here you are – one bottle of Felix Felicis, as promised, and use it well!'
+  ------
+
+ --- Student Hermione starts brewing ---
+   [Cauldron Hermione]: 🍲 The water is boiling.
+   [Cauldron Hermione]: 🍲 Valerian roots added. The potion turned dark currant.
+   [Cauldron Hermione]: 🍲 Sopophorous bean juice added. The potion turned lilac.
+   [Hermione]: "The instructions in the book say to slice it!"
+ Professor Slughorn's inspection:
+ ❌ stirClockwise — lilac
+  🧙 Professor Slughorn peered into the cauldron and moved on without a word.
+  ------
+
+ --- Student Ron starts brewing ---
+   [Cauldron Ron]: 🍲 The water is boiling.
+   [Cauldron Ron]: 🍲 Valerian roots added. The potion turned dark currant.
+ Professor Slughorn's inspection:
+ ❌ cutBeans — wet licorice
+  🧙 Professor Slughorn peered into the cauldron and moved on without a word.
+  ------
+
+ --- Student Malfoy starts brewing ---
+   [Cauldron Malfoy]: 🍲 The water is boiling.
+ Professor Slughorn's inspection:
+ ❌ ruinedByChop — ruined murky
+  🧙 Professor Slughorn peered into the cauldron and moved on without a word.
+  ------
+
+ --- Student Ernie starts brewing ---
+   [Cauldron Ernie]: 🍲 The water is boiling.
+   [Cauldron Ernie]: 🍲 Valerian roots added. The potion turned dark currant.
+   [Cauldron Ernie]: 🍲 Sopophorous bean juice added. The potion turned lilac.
+ Professor Slughorn's inspection:
+ ❌ stirClockwise — deep blue
+  🧙 Professor Slughorn peered into the cauldron and moved on without a word.
+  ------ 
+ */
